@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import { env } from "../config/env.js";
 import {
   login,
+  logoutSession,
   refreshSession,
   registerCustomer,
   resendVerificationOtp,
@@ -12,6 +13,7 @@ import { validate } from "../middlewares/validate.middleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import {
   loginSchema,
+  logoutSchema,
   refreshSchema,
   registerSchema,
   resendVerificationOtpSchema,
@@ -42,6 +44,19 @@ const refreshLimiter = rateLimit({
   handler: (_request, response) => response.status(429).json({
     success: false,
     message: "Too many refresh attempts. Please try again later.",
+    details: null,
+  }),
+});
+
+const logoutLimiter = rateLimit({
+  windowMs: 15 * 60 * 1_000,
+  limit: 60,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  skip: () => env.nodeEnv === "test",
+  handler: (_request, response) => response.status(429).json({
+    success: false,
+    message: "Too many logout attempts. Please try again later.",
     details: null,
   }),
 });
@@ -167,6 +182,45 @@ authRouter.post(
   refreshLimiter,
   validate(refreshSchema),
   asyncHandler(refreshSession),
+);
+
+/**
+ * @openapi
+ * /auth/logout:
+ *   post:
+ *     summary: Log out the current Refresh Session
+ *     description: Idempotently revokes only the session represented by the Refresh Cookie and always clears that cookie. Already-issued Access Tokens remain valid until expiry.
+ *     tags:
+ *       - Authentication
+ *     security:
+ *       - refreshCookie: []
+ *     responses:
+ *       200:
+ *         description: Logout successful; the Refresh Cookie is always cleared
+ *         headers:
+ *           Set-Cookie:
+ *             description: Expired HttpOnly, SameSite=Lax Refresh Cookie
+ *             schema: { type: string }
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 message: { type: string, example: Logout successful. }
+ *                 data: { nullable: true, example: null }
+ *       429:
+ *         description: Too many logout attempts from this IP
+ *       500:
+ *         description: Controlled server error; cookie is still cleared
+ *       503:
+ *         description: Controlled service error; cookie is still cleared
+ */
+authRouter.post(
+  "/logout",
+  logoutLimiter,
+  validate(logoutSchema),
+  asyncHandler(logoutSession),
 );
 
 /**

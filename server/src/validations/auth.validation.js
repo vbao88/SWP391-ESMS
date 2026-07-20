@@ -18,6 +18,8 @@ export const loginSchema = Joi.object({
 
 export const refreshSchema = Joi.object({});
 
+export const logoutSchema = Joi.object({});
+
 export const verifyEmailSchema = Joi.object({
   email: Joi.string().trim().lowercase().email().required(),
   otp: Joi.string().pattern(/^\d{6}$/).required(),

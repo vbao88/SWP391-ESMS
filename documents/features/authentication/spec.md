@@ -224,7 +224,7 @@ rotate the presented Refresh Token and issue a new Access Token. Logout will rev
 refresh session and clear the cookie.
 
 The email/password login endpoint is implemented in Checkpoint 3B. Refresh Token rotation is
-implemented in Checkpoint 3C. Logout remains a documented future endpoint.
+implemented in Checkpoint 3C. Current-session logout is implemented in Checkpoint 3D.
 
 #### Login
 
@@ -254,6 +254,15 @@ sets the rotated cookie, and returns only a new Access Token and its configured 
 Refresh Token becomes invalid immediately. Every invalid or expired refresh session returns HTTP
 401 with `Invalid or expired session.` and clears the cookie. Refresh Tokens and session metadata
 are never returned in JSON.
+
+#### Logout
+
+`POST /api/v1/auth/logout`
+
+Logout reads only the configured Refresh Token cookie, revokes only its matching current session,
+and always clears the cookie. The operation is idempotent: missing, invalid, expired, unknown, or
+already-revoked sessions still return HTTP 200 with `Logout successful.` Existing Access Tokens
+are not revoked and remain usable until their configured expiry.
 
 ### Approved Authentication and Session Rules
 

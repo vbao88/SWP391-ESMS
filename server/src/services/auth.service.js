@@ -184,6 +184,89 @@ async function refreshSession({ refreshToken, ipAddress = null, userAgent = null
   };
 }
 
+async function logoutSession({ refreshToken } = {}) {
+  if (typeof refreshToken !== "string" || refreshToken.length === 0) {
+    return null;
+  }
+
+  let claims;
+
+  try {
+    claims = verifyRefreshToken(refreshToken, { ignoreExpiration: true });
+  } catch {
+    return null;
+  }
+
+  if (!mongoose.isObjectIdOrHexString(claims.sub)) {
+    return null;
+  }
+
+  let user;
+
+  try {
+    user = await User.findById(claims.sub).select(
+      "+refreshSessions +refreshSessions.tokenHash",
+    );
+  } catch {
+    throw new ApiError(503, "Logout could not be completed. Please try again.");
+  }
+
+  if (!user) {
+    return null;
+  }
+
+  const storedSession = user.refreshSessions.find(
+    (session) => session.sessionId === claims.sid && session.familyId === claims.familyId,
+  );
+
+  if (
+    !storedSession ||
+    storedSession.revokedAt ||
+    !verifyRefreshTokenHash({ token: refreshToken, tokenHash: storedSession.tokenHash })
+  ) {
+    return null;
+  }
+
+  const now = new Date();
+  try {
+    await User.updateOne(
+      {
+        _id: user._id,
+        refreshSessions: {
+          $elemMatch: {
+            sessionId: claims.sid,
+            familyId: claims.familyId,
+            tokenHash: hashRefreshToken(refreshToken),
+            revokedAt: null,
+          },
+        },
+      },
+      {
+        $set: {
+          "refreshSessions.$[currentSession].revokedAt": now,
+          "refreshSessions.$[currentSession].revokedReason": "logout",
+          "refreshSessions.$[currentSession].lastUsedAt": now,
+        },
+        $inc: { __v: 1 },
+      },
+      {
+        arrayFilters: [
+          {
+            "currentSession.sessionId": claims.sid,
+            "currentSession.familyId": claims.familyId,
+            "currentSession.tokenHash": hashRefreshToken(refreshToken),
+            "currentSession.revokedAt": null,
+          },
+        ],
+      },
+    );
+  } catch {
+    throw new ApiError(503, "Logout could not be completed. Please try again.");
+  }
+
+  return null;
+}
+
 function isTemporarilyLocked(user, now) {
   return user.lockedUntil instanceof Date && user.lockedUntil > now;
 }
@@ -752,6 +835,7 @@ async function resendVerificationOtp({ email }) {
 
 export const authService = Object.freeze({
   login,
+  logoutSession,
   refreshSession,
   registerCustomer,
   verifyEmail,

@@ -44,6 +44,21 @@ export async function refreshSession(request, response) {
   }
 }
 
+export async function logoutSession(request, response) {
+  try {
+    await authService.logoutSession({
+      refreshToken: request.cookies?.[env.refreshCookieName],
+    });
+  } finally {
+    response.clearCookie(env.refreshCookieName, getClearRefreshCookieOptions());
+  }
+
+  return sendSuccess(response, {
+    message: "Logout successful.",
+    data: null,
+  });
+}
+
 export async function registerCustomer(request, response) {
   const data = await authService.registerCustomer(request.body);
 
