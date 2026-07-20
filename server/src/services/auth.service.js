@@ -10,9 +10,35 @@ import { sendVerificationOtp } from "./email.service.js";
 const PASSWORD_COST_FACTOR = 12;
 const EMAIL_VERIFICATION_PURPOSE = "email_verification";
 const INVALID_OTP_MESSAGE = "OTP is incorrect or expired.";
+const RESEND_COOLDOWN_MESSAGE = "Please wait before requesting another OTP.";
 
 function isDuplicateKeyError(error) {
   return error?.code === 11000 || error?.cause?.code === 11000;
+}
+
+function assertVerificationEligibility(user) {
+  if (user.emailVerifiedAt || user.status === "active") {
+    throw new ApiError(409, "Email is already verified");
+  }
+
+  if (user.status !== "pending_activation") {
+    throw new ApiError(409, "Account is not eligible for email verification");
+  }
+}
+
+function getRemainingCooldownSeconds(token, now) {
+  if (!token) {
+    return 0;
+  }
+
+  const cooldownEndsAt = token.createdAt.getTime() + env.otpResendCooldownSeconds * 1_000;
+  return Math.max(0, Math.ceil((cooldownEndsAt - now.getTime()) / 1_000));
+}
+
+function createCooldownError(remainingSeconds) {
+  const error = new ApiError(429, RESEND_COOLDOWN_MESSAGE);
+  error.retryAfterSeconds = remainingSeconds;
+  return error;
 }
 
 async function registerCustomer({ fullName, email, password }) {
@@ -112,13 +138,7 @@ async function verifyEmail({ email, otp }) {
     throw new ApiError(404, "Account does not exist");
   }
 
-  if (user.emailVerifiedAt || user.status === "active") {
-    throw new ApiError(409, "Email is already verified");
-  }
-
-  if (user.status !== "pending_activation") {
-    throw new ApiError(409, "Account is not eligible for email verification");
-  }
+  assertVerificationEligibility(user);
 
   const token = await OtpToken.findOne({
     userId: user._id,
@@ -212,4 +232,134 @@ async function verifyEmail({ email, otp }) {
   };
 }
 
-export const authService = Object.freeze({ registerCustomer, verifyEmail });
+async function resendVerificationOtp({ email }) {
+  const normalizedEmail = email.toLowerCase();
+  const user = await User.findOne({ email: normalizedEmail });
+
+  if (!user) {
+    throw new ApiError(404, "Account does not exist");
+  }
+
+  assertVerificationEligibility(user);
+
+  const previousToken = await OtpToken.findOne({
+    userId: user._id,
+    purpose: EMAIL_VERIFICATION_PURPOSE,
+  }).sort({ createdAt: -1 });
+  const initialCooldown = getRemainingCooldownSeconds(previousToken, new Date());
+
+  if (initialCooldown > 0) {
+    throw createCooldownError(initialCooldown);
+  }
+
+  const otp = generateOtp();
+  const session = await mongoose.startSession();
+
+  try {
+    await session.withTransaction(async () => {
+      const transactionNow = new Date();
+      const newestToken = await OtpToken.findOne({
+        userId: user._id,
+        purpose: EMAIL_VERIFICATION_PURPOSE,
+      })
+        .sort({ createdAt: -1 })
+        .session(session);
+      const remainingCooldown = getRemainingCooldownSeconds(newestToken, transactionNow);
+
+      if (remainingCooldown > 0) {
+        throw createCooldownError(remainingCooldown);
+      }
+
+      const eligibleUser = await User.exists({
+        _id: user._id,
+        status: "pending_activation",
+        emailVerifiedAt: null,
+      }).session(session);
+
+      if (!eligibleUser) {
+        throw new ApiError(409, "Account is not eligible for email verification");
+      }
+
+      await OtpToken.updateMany(
+        {
+          userId: user._id,
+          purpose: EMAIL_VERIFICATION_PURPOSE,
+          isActive: true,
+          usedAt: null,
+        },
+        {
+          $set: {
+            invalidatedAt: transactionNow,
+            isActive: false,
+          },
+        },
+        { session },
+      );
+
+      const tokenHash = hashOtp({
+        otp,
+        userId: user._id,
+        purpose: EMAIL_VERIFICATION_PURPOSE,
+      });
+
+      await OtpToken.create(
+        [
+          {
+            userId: user._id,
+            purpose: EMAIL_VERIFICATION_PURPOSE,
+            tokenHash,
+            expiresAt: new Date(transactionNow.getTime() + env.otpExpiresMinutes * 60_000),
+            usedAt: null,
+            invalidatedAt: null,
+            isActive: true,
+          },
+        ],
+        { session },
+      );
+    });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+
+    if (isDuplicateKeyError(error) || error?.hasErrorLabel?.("TransientTransactionError")) {
+      const newestToken = await OtpToken.findOne({
+        userId: user._id,
+        purpose: EMAIL_VERIFICATION_PURPOSE,
+      }).sort({ createdAt: -1 });
+      const remainingCooldown = getRemainingCooldownSeconds(newestToken, new Date());
+
+      if (remainingCooldown > 0) {
+        throw createCooldownError(remainingCooldown);
+      }
+
+      throw new ApiError(409, "Another OTP resend request is already in progress");
+    }
+
+    throw error;
+  } finally {
+    await session.endSession();
+  }
+
+  try {
+    await sendVerificationOtp({
+      email: user.email,
+      otp,
+      purpose: EMAIL_VERIFICATION_PURPOSE,
+      expiresMinutes: env.otpExpiresMinutes,
+    });
+  } catch (_error) {
+    throw new ApiError(
+      503,
+      "A new OTP was generated, but it could not be delivered. Please try again later.",
+    );
+  }
+
+  return { email: user.email };
+}
+
+export const authService = Object.freeze({
+  registerCustomer,
+  verifyEmail,
+  resendVerificationOtp,
+});

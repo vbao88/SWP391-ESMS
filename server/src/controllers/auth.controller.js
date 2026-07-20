@@ -19,3 +19,12 @@ export async function verifyEmail(request, response) {
     data,
   });
 }
+
+export async function resendVerificationOtp(request, response) {
+  const data = await authService.resendVerificationOtp(request.body);
+
+  return sendSuccess(response, {
+    message: "A new verification OTP has been generated.",
+    data,
+  });
+}

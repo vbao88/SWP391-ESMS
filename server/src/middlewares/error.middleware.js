@@ -3,6 +3,10 @@ import { env } from "../config/env.js";
 export function errorHandler(error, _request, response, _next) {
   const statusCode = error.statusCode ?? 500;
 
+  if (Number.isInteger(error.retryAfterSeconds) && error.retryAfterSeconds > 0) {
+    response.set("Retry-After", String(error.retryAfterSeconds));
+  }
+
   const payload = {
     success: false,
     message: statusCode === 500 ? "Internal server error" : error.message,

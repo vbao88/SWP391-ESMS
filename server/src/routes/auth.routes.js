@@ -1,8 +1,16 @@
 import { Router } from "express";
-import { registerCustomer, verifyEmail } from "../controllers/auth.controller.js";
+import {
+  registerCustomer,
+  resendVerificationOtp,
+  verifyEmail,
+} from "../controllers/auth.controller.js";
 import { validate } from "../middlewares/validate.middleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { registerSchema, verifyEmailSchema } from "../validations/auth.validation.js";
+import {
+  registerSchema,
+  resendVerificationOtpSchema,
+  verifyEmailSchema,
+} from "../validations/auth.validation.js";
 
 export const authRouter = Router();
 
@@ -128,3 +136,63 @@ authRouter.post("/register", validate(registerSchema), asyncHandler(registerCust
  *         description: Too many requests
  */
 authRouter.post("/verify-email", validate(verifyEmailSchema), asyncHandler(verifyEmail));
+
+/**
+ * @openapi
+ * /auth/resend-verification-otp:
+ *   post:
+ *     summary: Generate and deliver a new customer email verification OTP
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: bao@example.com
+ *     responses:
+ *       200:
+ *         description: A new verification OTP was generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: A new verification OTP has been generated.
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     email:
+ *                       type: string
+ *                       format: email
+ *                       example: bao@example.com
+ *       404:
+ *         description: Account does not exist
+ *       409:
+ *         description: Account is already verified, not eligible, or has a conflicting request
+ *       429:
+ *         description: OTP was requested too recently
+ *         headers:
+ *           Retry-After:
+ *             description: Whole seconds remaining before another OTP may be requested
+ *             schema:
+ *               type: integer
+ *       503:
+ *         description: OTP was generated but delivery failed
+ */
+authRouter.post(
+  "/resend-verification-otp",
+  validate(resendVerificationOtpSchema),
+  asyncHandler(resendVerificationOtp),
+);
