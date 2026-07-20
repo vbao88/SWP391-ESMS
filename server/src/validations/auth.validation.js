@@ -13,7 +13,7 @@ export const registerSchema = Joi.object({
 
 export const loginSchema = Joi.object({
   email: Joi.string().trim().lowercase().email().required(),
-  password: Joi.string().required(),
+  password: Joi.string().max(72).required(),
 });
 
 export const verifyEmailSchema = Joi.object({

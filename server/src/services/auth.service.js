@@ -5,12 +5,251 @@ import { OtpToken } from "../models/OtpToken.js";
 import { User } from "../models/User.js";
 import { ApiError } from "../utils/ApiError.js";
 import { generateOtp, hashOtp, verifyOtpHash } from "../utils/otp.js";
+import {
+  countActiveRefreshSessions,
+  createRefreshSession,
+  createRefreshToken,
+  generateSecureTokenId,
+  hashRefreshToken,
+  parseDurationToMilliseconds,
+  removeExpiredRefreshSessions,
+  selectOldestActiveRefreshSession,
+  signAccessToken,
+} from "../utils/token.js";
 import { sendVerificationOtp } from "./email.service.js";
 
 const PASSWORD_COST_FACTOR = 12;
 const EMAIL_VERIFICATION_PURPOSE = "email_verification";
 const INVALID_OTP_MESSAGE = "OTP is incorrect or expired.";
 const RESEND_COOLDOWN_MESSAGE = "Please wait before requesting another OTP.";
+const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password.";
+const FAILED_LOGIN_THRESHOLD = 5;
+const LOGIN_PERSISTENCE_ATTEMPTS = 5;
+const DUMMY_PASSWORD_HASH = "$2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW";
+
+function invalidCredentialsError() {
+  return new ApiError(401, INVALID_CREDENTIALS_MESSAGE);
+}
+
+function isTemporarilyLocked(user, now) {
+  return user.lockedUntil instanceof Date && user.lockedUntil > now;
+}
+
+async function recordFailedLogin(userId, now) {
+  const lockUntil = new Date(now.getTime() + env.accountLockMinutes * 60_000);
+
+  await User.updateOne(
+    {
+      _id: userId,
+      $or: [{ lockedUntil: null }, { lockedUntil: { $lte: now } }],
+    },
+    [
+      {
+        $set: {
+          failedLoginAttempts: {
+            $min: [
+              FAILED_LOGIN_THRESHOLD,
+              {
+                $add: [
+                  {
+                    $cond: [
+                      {
+                        $and: [
+                          { $ne: ["$lockedUntil", null] },
+                          { $lte: ["$lockedUntil", now] },
+                        ],
+                      },
+                      0,
+                      { $ifNull: ["$failedLoginAttempts", 0] },
+                    ],
+                  },
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        $set: {
+          lockedUntil: {
+            $cond: [
+              { $gte: ["$failedLoginAttempts", FAILED_LOGIN_THRESHOLD] },
+              lockUntil,
+              null,
+            ],
+          },
+          refreshSessions: {
+            $cond: [
+              { $gte: ["$failedLoginAttempts", FAILED_LOGIN_THRESHOLD] },
+              {
+                $map: {
+                  input: { $ifNull: ["$refreshSessions", []] },
+                  as: "refreshSession",
+                  in: {
+                    $cond: [
+                      {
+                        $and: [
+                          { $eq: ["$$refreshSession.revokedAt", null] },
+                          { $gt: ["$$refreshSession.expiresAt", now] },
+                        ],
+                      },
+                      {
+                        $mergeObjects: [
+                          "$$refreshSession",
+                          { revokedAt: now, revokedReason: "account_locked" },
+                        ],
+                      },
+                      "$$refreshSession",
+                    ],
+                  },
+                },
+              },
+              { $ifNull: ["$refreshSessions", []] },
+            ],
+          },
+          __v: { $add: [{ $ifNull: ["$__v", 0] }, 1] },
+        },
+      },
+    ],
+    { updatePipeline: true },
+  );
+}
+
+function prepareSessionsForLogin(sessions, newSession, now) {
+  const retainedSessions = removeExpiredRefreshSessions(sessions, now).map((session) =>
+    typeof session.toObject === "function" ? session.toObject({ transform: false }) : { ...session },
+  );
+
+  if (countActiveRefreshSessions(retainedSessions, now) >= env.maxActiveRefreshSessions) {
+    const oldest = selectOldestActiveRefreshSession(retainedSessions, now);
+    const oldestIndex = retainedSessions.findIndex(
+      ({ sessionId }) => sessionId === oldest?.sessionId,
+    );
+
+    if (oldestIndex >= 0) {
+      retainedSessions[oldestIndex] = {
+        ...retainedSessions[oldestIndex],
+        revokedAt: now,
+        revokedReason: "session_limit",
+      };
+    }
+  }
+
+  return [...retainedSessions, newSession];
+}
+
+function safeUserPayload(user) {
+  return {
+    id: user._id.toString(),
+    fullName: user.fullName,
+    email: user.email,
+    role: user.role,
+    adminLevel: user.adminLevel ?? null,
+    branchId: user.branchId?.toString() ?? null,
+    status: user.status,
+  };
+}
+
+async function persistLoginSession({ userId, newSession, now }) {
+  for (let attempt = 0; attempt < LOGIN_PERSISTENCE_ATTEMPTS; attempt += 1) {
+    const currentUser = await User.findById(userId).select(
+      "+refreshSessions +refreshSessions.tokenHash",
+    );
+
+    if (
+      !currentUser ||
+      currentUser.status !== "active" ||
+      !currentUser.emailVerifiedAt ||
+      isTemporarilyLocked(currentUser, now)
+    ) {
+      throw invalidCredentialsError();
+    }
+
+    const refreshSessions = prepareSessionsForLogin(
+      currentUser.refreshSessions ?? [],
+      newSession,
+      now,
+    );
+    const update = await User.updateOne(
+      {
+        _id: currentUser._id,
+        __v: currentUser.__v,
+        status: "active",
+        emailVerifiedAt: { $ne: null },
+        $or: [{ lockedUntil: null }, { lockedUntil: { $lte: now } }],
+      },
+      {
+        $set: {
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          refreshSessions,
+        },
+        $inc: { __v: 1 },
+      },
+    );
+
+    if (update.modifiedCount === 1) {
+      return currentUser;
+    }
+  }
+
+  throw new ApiError(503, "Login could not be completed. Please try again.");
+}
+
+async function login({ email, password, userAgent = null, ipAddress = null }) {
+  const normalizedEmail = email.toLowerCase();
+  const now = new Date();
+  const user = await User.findOne({ email: normalizedEmail }).select(
+    "+passwordHash +refreshSessions +refreshSessions.tokenHash",
+  );
+
+  if (!user) {
+    await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
+    throw invalidCredentialsError();
+  }
+
+  if (isTemporarilyLocked(user, now)) {
+    throw invalidCredentialsError();
+  }
+
+  const passwordMatches = await bcrypt.compare(password, user.passwordHash);
+
+  if (!passwordMatches) {
+    await recordFailedLogin(user._id, now);
+    throw invalidCredentialsError();
+  }
+
+  if (user.status !== "active" || !user.emailVerifiedAt) {
+    throw invalidCredentialsError();
+  }
+
+  const sessionId = generateSecureTokenId();
+  const familyId = generateSecureTokenId();
+  const refreshToken = createRefreshToken({ userId: user._id, sessionId, familyId });
+  const newSession = createRefreshSession({
+    sessionId,
+    tokenHash: hashRefreshToken(refreshToken),
+    familyId,
+    createdAt: now,
+    expiresAt: new Date(
+      now.getTime() + parseDurationToMilliseconds(env.jwtRefreshExpiresIn),
+    ),
+    userAgent,
+    ipAddress,
+  });
+  const persistedUser = await persistLoginSession({ userId: user._id, newSession, now });
+  const accessToken = signAccessToken(persistedUser);
+
+  return {
+    refreshToken,
+    data: {
+      accessToken,
+      expiresIn: env.jwtAccessExpiresIn,
+      user: safeUserPayload(persistedUser),
+    },
+  };
+}
 
 function isDuplicateKeyError(error) {
   return error?.code === 11000 || error?.cause?.code === 11000;
@@ -359,6 +598,7 @@ async function resendVerificationOtp({ email }) {
 }
 
 export const authService = Object.freeze({
+  login,
   registerCustomer,
   verifyEmail,
   resendVerificationOtp,

@@ -223,8 +223,26 @@ Token and safe user data, and will set a Refresh Token only in an HTTP-only cook
 rotate the presented Refresh Token and issue a new Access Token. Logout will revoke the presented
 refresh session and clear the cookie.
 
-These endpoints are documented for the future Phase 2 implementation. Login, refresh, and logout
-are not implemented in Checkpoint 3A.
+The email/password login endpoint is implemented in Checkpoint 3B. Refresh and logout remain
+documented future endpoints and are not implemented in this checkpoint.
+
+#### Login
+
+`POST /api/v1/auth/login`
+
+Request:
+
+```json
+{
+  "email": "bao@example.com",
+  "password": "Password123"
+}
+```
+
+A successful login returns HTTP 200 with an Access Token, its configured expiry, and safe user
+data. The initial Refresh Token is returned only in the `esms_refresh_token` HTTP-only cookie.
+Every authentication failure returns HTTP 401 with `Invalid email or password.` Malformed input
+remains HTTP 400, and login-specific throttling may return HTTP 429.
 
 ### Approved Authentication and Session Rules
 

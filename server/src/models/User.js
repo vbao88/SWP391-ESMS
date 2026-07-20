@@ -7,6 +7,7 @@ const REFRESH_SESSION_REVOKED_REASONS = [
   "password_reset",
   "security_status_changed",
   "reuse_detected",
+  "session_limit",
 ];
 
 const refreshSessionSchema = new mongoose.Schema(

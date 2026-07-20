@@ -1,5 +1,8 @@
 import { Router } from "express";
+import rateLimit from "express-rate-limit";
+import { env } from "../config/env.js";
 import {
+  login,
   registerCustomer,
   resendVerificationOtp,
   verifyEmail,
@@ -7,12 +10,102 @@ import {
 import { validate } from "../middlewares/validate.middleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import {
+  loginSchema,
   registerSchema,
   resendVerificationOtpSchema,
   verifyEmailSchema,
 } from "../validations/auth.validation.js";
 
 export const authRouter = Router();
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1_000,
+  limit: 20,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  skip: () => env.nodeEnv === "test",
+  handler: (_request, response) => response.status(429).json({
+    success: false,
+    message: "Too many login attempts. Please try again later.",
+    details: null,
+  }),
+});
+
+/**
+ * @openapi
+ * /auth/login:
+ *   post:
+ *     summary: Log in with email and password
+ *     description: Returns an Access Token for Bearer authentication and sets the Refresh Token only in an HTTP-only cookie. The Refresh Token is never returned in JSON.
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: bao@example.com
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 maxLength: 72
+ *                 example: Password123
+ *     responses:
+ *       200:
+ *         description: Login successful; sets the HttpOnly esms_refresh_token cookie
+ *         headers:
+ *           Set-Cookie:
+ *             description: HttpOnly, SameSite=Lax Refresh Token cookie scoped to /api/v1/auth
+ *             schema:
+ *               type: string
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Login successful.
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     accessToken:
+ *                       type: string
+ *                       description: Use as a Bearer token for protected endpoints
+ *                     expiresIn:
+ *                       type: string
+ *                       example: 15m
+ *                     user:
+ *                       type: object
+ *                       properties:
+ *                         id: { type: string }
+ *                         fullName: { type: string }
+ *                         email: { type: string, format: email }
+ *                         role: { type: string }
+ *                         adminLevel: { type: string, nullable: true }
+ *                         branchId: { type: string, nullable: true }
+ *                         status: { type: string, enum: [active] }
+ *       400:
+ *         description: Malformed login input
+ *       401:
+ *         description: Invalid email or password
+ *       429:
+ *         description: Too many login attempts from this IP
+ *       500:
+ *         description: Internal server error while completing login
+ *       503:
+ *         description: Login session could not be persisted after concurrent changes
+ */
+authRouter.post("/login", loginLimiter, validate(loginSchema), asyncHandler(login));
 
 /**
  * @openapi
