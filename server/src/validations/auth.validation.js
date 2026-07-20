@@ -15,3 +15,12 @@ export const loginSchema = Joi.object({
   email: Joi.string().trim().lowercase().email().required(),
   password: Joi.string().required(),
 });
+
+export const verifyEmailSchema = Joi.object({
+  email: Joi.string().trim().lowercase().email().required(),
+  otp: Joi.string().pattern(/^\d{6}$/).required(),
+});
+
+export const resendVerificationOtpSchema = Joi.object({
+  email: Joi.string().trim().lowercase().email().required(),
+});
