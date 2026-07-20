@@ -1,0 +1,19 @@
+digraph G {
+  graph [rankdir=LR, bgcolor="white", pad=0.25, nodesep=0.5, ranksep=0.75, fontname="Arial"];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=11, color="#2F5D7C", fillcolor="#EAF3F8", margin="0.18,0.10"];
+  edge [color="#56788A", arrowsize=0.7, fontname="Arial", fontsize=9];
+  browser [label="Customer / Staff Browser"];
+  vercel [label="Vercel\nReact + Vite Frontend"];
+  railway [label="Railway\nNode.js + Express + Socket.IO"];
+  atlas [label="MongoDB Atlas\nProduction Database", fillcolor="#E8F5E9", color="#4C7A4C"];
+  providers [label="External Providers\nCloudinary • VNPAY • GHN\nEmail • AI APIs", fillcolor="#FFF4DD", color="#A97822"];
+  github [label="GitHub Repository\nmain / develop / feature branches", fillcolor="#F1ECFA", color="#69508A"];
+  local [label="Local Development\nDocker MongoDB Replica Set\nReact + Express", fillcolor="#F7F7F7", color="#777777"];
+  browser -> vercel [label="HTTPS"];
+  vercel -> railway [label="REST / WebSocket"];
+  railway -> atlas;
+  railway -> providers;
+  github -> vercel [label="CI/CD"];
+  github -> railway [label="CI/CD"];
+  local -> github [label="commit / push"];
+}

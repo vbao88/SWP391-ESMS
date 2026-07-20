@@ -1,0 +1,32 @@
+digraph G {
+  graph [rankdir=LR, bgcolor="white", pad=0.2, nodesep=0.35, ranksep=0.5, fontname="Arial"];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=9, color="#2F5D7C", fillcolor="#EAF3F8"];
+  edge [color="#56788A", arrowsize=0.65, fontname="Arial", fontsize=7];
+  created [label="pending_prescription_review"];
+  waitpay [label="waiting_for_payment"];
+  confirmed [label="confirmed"];
+  process [label="lens_processing"];
+  qc [label="quality_check"];
+  ready [label="ready_to_ship / ready_for_pickup"];
+  shipping [label="shipping"];
+  completed [label="completed", fillcolor="#E8F5E9", color="#4C7A4C"];
+  update [label="needs_prescription_update", fillcolor="#FFF4DD", color="#A97822"];
+  cancelled [label="cancelled", fillcolor="#FDECEC", color="#A84A4A"];
+  returned [label="return_requested / returned / refunded", fillcolor="#F3F3F3", color="#777777"];
+  created -> waitpay [label="all prescriptions verified (VNPAY)"];
+  created -> confirmed [label="all prescriptions verified (COD)"];
+  created -> update [label="update requested"];
+  update -> created [label="resubmitted"];
+  waitpay -> confirmed [label="payment successful"];
+  confirmed -> process [label="start production"];
+  process -> qc [label="production complete"];
+  qc -> process [label="failed QC"];
+  qc -> ready [label="passed QC"];
+  ready -> shipping [label="home delivery"];
+  ready -> completed [label="branch pickup"];
+  shipping -> completed [label="delivered"];
+  created -> cancelled;
+  waitpay -> cancelled;
+  confirmed -> cancelled [label="approved request"];
+  completed -> returned [label="eligible return"];
+}

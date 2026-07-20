@@ -1,0 +1,76 @@
+digraph ERD {
+  graph [rankdir=LR, bgcolor="white", pad=0.25, nodesep=0.35, ranksep=0.55, fontname="Arial", splines=ortho];
+  node [shape=record, style="rounded,filled", fontname="Arial", fontsize=8.5, color="#2F5D7C", fillcolor="#F6FAFC", margin="0.08,0.05"];
+  edge [color="#7890A0", arrowsize=0.55, penwidth=1.0];
+
+  users [label="{users|_id\lemail\lrole\ladminLevel\lbranchId\lstatus\l}"];
+  profiles [label="{personProfiles|_id\lcustomerId\lfullName\lrelationship\lisActive\l}"];
+  addresses [label="{addresses|_id\lcustomerId\lprovinceCode\ldistrictCode\lwardCode\lisDefault\l}"];
+  branches [label="{branches|_id\lname\laddress\loperatingHours\lserviceStatus\l}"];
+  schedules [label="{staffSchedules|_id\lstaffId\lbranchId\ldate/weekday\lworkPeriods\lbreakPeriods\l}"];
+
+  frames [label="{frames|_id\lname\lbrandId\lcategoryId\lshape\lmaterial\lstatus\l}"];
+  variants [label="{frameVariants|_id\lframeId\lsku\lcolor\lsize\lprice\lstatus\l}"];
+  lenses [label="{lenses|_id\lname\lbrandId\lvisionType\lindex\lprice\l}"];
+  lensopts [label="{lensOptions|_id\llensId\lname\lprice\lcompatibility\l}"];
+  inventory [label="{branchInventories|_id\lbranchId\litemType\litemId\lquantity\lreservedQuantity\l}"];
+  invtx [label="{inventoryTransactions|_id\linventoryId\ltype\lquantity\lreferenceId\lperformedBy\l}"];
+
+  prescriptions [label="{prescriptions|_id\lprofileId\lmethod\lOD/OS values\lstatus\lassignedTo\lexpiryDate\l}"];
+  presversions [label="{prescriptionVersions|_id\lprescriptionId\lversion\ldataSnapshot\lchangedBy\l}"];
+  appointments [label="{appointments|_id\lcustomerId\lprofileId\lbranchId\lstaffId\lstartAt\lstatus\l}"];
+
+  carts [label="{carts|_id\lcustomerId\litems[]\lupdatedAt\l}"];
+  orders [label="{orders|_id\lorderCode\lcustomerId\lbranchId\lpaymentMethod\lstatus\ltotals\l}"];
+  orderitems [label="{orderItems|_id\lorderId\lframeVariantId\llensId\lprescriptionId\lprocessingStatus\lpriceSnapshot\l}"];
+  payments [label="{payments|_id\lorderId\lprovider\lamount\lstatus\ltransactionRef\l}"];
+  reservations [label="{inventoryReservations|_id\lorderId\lbranchId\litems[]\lstatus\lexpiresAt\l}"];
+  shipments [label="{shipments|_id\lorderId\lprovider\ltrackingCode\lstatus\lfee\l}"];
+
+  returns [label="{returnRequests|_id\lorderId\lcustomerId\litems[]\lstatus\lrecommendation\l}"];
+  refunds [label="{refunds|_id\lreturnRequestId\lorderId\lamount\ldeductions\lstatus\lapprovedBy\l}"];
+  reviews [label="{reviews|_id\lcustomerId\lorderItemId\lproductId\lrating\lstatus\l}"];
+  promos [label="{promotions|_id\lcode\ldiscountType\lvalue\lconstraints\lstatus\l}"];
+  notifications [label="{notifications|_id\lrecipientId\ltype\lreferenceId\lisRead\lchannels\l}"];
+  conversations [label="{conversations|_id\lcustomerId\lbranchId\lassignedSalesId\lstatus\l}"];
+  messages [label="{messages|_id\lconversationId\lsenderId\lcontent\lattachments\lreadAt\l}"];
+  audit [label="{auditLogs|_id\lactorId\laction\lentityType\lentityId\lmetadata\lcreatedAt\l}"];
+
+  users -> profiles;
+  users -> addresses;
+  branches -> users;
+  users -> schedules;
+  branches -> schedules;
+
+  frames -> variants;
+  lenses -> lensopts;
+  branches -> inventory;
+  variants -> inventory;
+  inventory -> invtx;
+
+  profiles -> prescriptions;
+  prescriptions -> presversions;
+  profiles -> appointments;
+  users -> appointments;
+  branches -> appointments;
+
+  users -> carts;
+  users -> orders;
+  branches -> orders;
+  orders -> orderitems;
+  variants -> orderitems;
+  lenses -> orderitems;
+  prescriptions -> orderitems;
+  orders -> payments;
+  orders -> reservations;
+  orders -> shipments;
+
+  orders -> returns;
+  returns -> refunds;
+  orderitems -> reviews;
+  promos -> orders [style=dashed];
+  users -> notifications;
+  users -> conversations;
+  conversations -> messages;
+  users -> audit;
+}

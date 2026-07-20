@@ -1,0 +1,44 @@
+{
+  "name": "esms-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.13.0"
+  },
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "seed": "node src/seeds/seed.js"
+  },
+  "dependencies": {
+    "axios": "1.18.1",
+    "bcryptjs": "3.0.3",
+    "cloudinary": "2.10.0",
+    "compression": "1.8.1",
+    "cookie-parser": "1.4.7",
+    "cors": "2.8.6",
+    "dotenv": "17.4.2",
+    "express": "5.2.1",
+    "express-rate-limit": "8.6.0",
+    "google-auth-library": "10.9.0",
+    "helmet": "8.3.0",
+    "joi": "18.2.3",
+    "jsonwebtoken": "9.0.3",
+    "mongoose": "9.7.4",
+    "morgan": "1.11.0",
+    "multer": "2.2.0",
+    "nodemailer": "9.0.3",
+    "socket.io": "4.8.3",
+    "swagger-jsdoc": "6.3.0",
+    "swagger-ui-express": "5.0.1",
+    "uuid": "14.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "3.1.14",
+    "supertest": "7.2.2",
+    "vitest": "4.1.10"
+  }
+}

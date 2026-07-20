@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Environment files
+.env
+.env.*
+!.env.example
+client/.env
+server/.env
+
+# Build and coverage
+client/dist/
+coverage/
+client/coverage/
+server/coverage/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Temporary uploads
+server/uploads/

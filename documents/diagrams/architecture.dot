@@ -1,0 +1,30 @@
+digraph G {
+  graph [rankdir=TB, bgcolor="white", pad=0.25, nodesep=0.45, ranksep=0.65, fontname="Arial"];
+  node [shape=box, style="rounded,filled", fontname="Arial", fontsize=11, color="#2F5D7C", fillcolor="#EAF3F8", margin="0.18,0.10"];
+  edge [color="#56788A", arrowsize=0.7, fontname="Arial", fontsize=9];
+
+  users [label="Users\nGuest / Customer / Staff / Admin", fillcolor="#DCEEF8"];
+  frontend [label="Presentation Layer\nReact + Vite + Tailwind + shadcn/ui\nReact Router / TanStack Query / Zustand"];
+  api [label="API & Realtime Layer\nExpress REST API + Socket.IO\nAuthentication / Validation / Rate Limiting"];
+  services [label="Application Services\nAuth • Catalog • Prescription • Appointment\nCart • Order • Payment • Shipping • Chat • Reporting"];
+  data [label="Data Access Layer\nMongoose Models / Repositories\nTransactions / Indexes / Audit Logging"];
+  mongo [label="MongoDB\nLocal Replica Set / Atlas", fillcolor="#E8F5E9", color="#4C7A4C"];
+  cloudinary [label="Cloudinary\nImages & Documents", fillcolor="#FFF4DD", color="#A97822"];
+  vnpay [label="VNPAY Sandbox", fillcolor="#FFF4DD", color="#A97822"];
+  ghn [label="GHN API", fillcolor="#FFF4DD", color="#A97822"];
+  email [label="Email Service\nNodemailer / Gmail SMTP", fillcolor="#FFF4DD", color="#A97822"];
+  ai [label="AI Provider Layer\nGemini / OpenAI / Groq", fillcolor="#FFF4DD", color="#A97822"];
+  mediapipe [label="MediaPipe\nFace Landmarks / Try-On", fillcolor="#FFF4DD", color="#A97822"];
+
+  users -> frontend;
+  frontend -> api [label="HTTPS / JSON / WebSocket"];
+  api -> services;
+  services -> data;
+  data -> mongo;
+  services -> cloudinary;
+  services -> vnpay;
+  services -> ghn;
+  services -> email;
+  services -> ai;
+  frontend -> mediapipe [label="browser-side"];
+}

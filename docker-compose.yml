@@ -1,0 +1,42 @@
+services:
+  mongo:
+    image: mongo:8
+    container_name: esms-mongo
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - esms_mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  mongo-init:
+    image: mongo:8
+    container_name: esms-mongo-init
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: "no"
+    entrypoint:
+      - bash
+      - -c
+      - |
+        mongosh --host mongo:27017 --quiet --eval '
+          try {
+            rs.status();
+            print("Replica set already initialized");
+          } catch (error) {
+            rs.initiate({
+              _id: "rs0",
+              members: [{ _id: 0, host: "localhost:27017" }]
+            });
+            print("Replica set initialization requested");
+          }
+        '
+
+volumes:
+  esms_mongo_data:
