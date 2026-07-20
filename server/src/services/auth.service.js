@@ -15,6 +15,8 @@ import {
   removeExpiredRefreshSessions,
   selectOldestActiveRefreshSession,
   signAccessToken,
+  verifyRefreshToken,
+  verifyRefreshTokenHash,
 } from "../utils/token.js";
 import { sendVerificationOtp } from "./email.service.js";
 
@@ -26,9 +28,160 @@ const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password.";
 const FAILED_LOGIN_THRESHOLD = 5;
 const LOGIN_PERSISTENCE_ATTEMPTS = 5;
 const DUMMY_PASSWORD_HASH = "$2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW";
+const INVALID_SESSION_MESSAGE = "Invalid or expired session.";
 
 function invalidCredentialsError() {
   return new ApiError(401, INVALID_CREDENTIALS_MESSAGE);
+}
+
+function invalidSessionError() {
+  return new ApiError(401, INVALID_SESSION_MESSAGE);
+}
+
+async function revokeSessionsForIneligibleUser(user, now) {
+  const revokedReason = isTemporarilyLocked(user, now)
+    ? "account_locked"
+    : "security_status_changed";
+
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $set: {
+        "refreshSessions.$[activeSession].revokedAt": now,
+        "refreshSessions.$[activeSession].revokedReason": revokedReason,
+      },
+      $inc: { __v: 1 },
+    },
+    {
+      arrayFilters: [
+        {
+          "activeSession.revokedAt": null,
+          "activeSession.expiresAt": { $gt: now },
+        },
+      ],
+    },
+  );
+}
+
+async function refreshSession({ refreshToken, ipAddress = null, userAgent = null }) {
+  if (typeof refreshToken !== "string" || refreshToken.length === 0) {
+    throw invalidSessionError();
+  }
+
+  let claims;
+
+  try {
+    claims = verifyRefreshToken(refreshToken);
+  } catch {
+    throw invalidSessionError();
+  }
+
+  if (!mongoose.isObjectIdOrHexString(claims.sub)) {
+    throw invalidSessionError();
+  }
+
+  const now = new Date();
+  const user = await User.findById(claims.sub).select(
+    "+refreshSessions +refreshSessions.tokenHash",
+  );
+
+  if (!user) {
+    throw invalidSessionError();
+  }
+
+  if (
+    user.status !== "active" ||
+    !user.emailVerifiedAt ||
+    isTemporarilyLocked(user, now)
+  ) {
+    await revokeSessionsForIneligibleUser(user, now);
+    throw invalidSessionError();
+  }
+
+  const presentedSession = user.refreshSessions.find(
+    (session) => session.sessionId === claims.sid && session.familyId === claims.familyId,
+  );
+
+  if (
+    !presentedSession ||
+    presentedSession.revokedAt ||
+    presentedSession.expiresAt <= now ||
+    !verifyRefreshTokenHash({ token: refreshToken, tokenHash: presentedSession.tokenHash })
+  ) {
+    throw invalidSessionError();
+  }
+
+  const newSessionId = generateSecureTokenId();
+  const newRefreshToken = createRefreshToken({
+    userId: user._id,
+    sessionId: newSessionId,
+    familyId: claims.familyId,
+  });
+  const newSession = createRefreshSession({
+    sessionId: newSessionId,
+    tokenHash: hashRefreshToken(newRefreshToken),
+    familyId: claims.familyId,
+    createdAt: now,
+    expiresAt: new Date(
+      now.getTime() + parseDurationToMilliseconds(env.jwtRefreshExpiresIn),
+    ),
+    ipAddress,
+    userAgent,
+  });
+  const retainedSessions = removeExpiredRefreshSessions(user.refreshSessions, now).map(
+    (session) =>
+      typeof session.toObject === "function"
+        ? session.toObject({ transform: false })
+        : { ...session },
+  );
+  const oldSessionIndex = retainedSessions.findIndex(
+    (session) => session.sessionId === claims.sid && session.familyId === claims.familyId,
+  );
+
+  if (oldSessionIndex < 0) {
+    throw invalidSessionError();
+  }
+
+  retainedSessions[oldSessionIndex] = {
+    ...retainedSessions[oldSessionIndex],
+    revokedAt: now,
+    revokedReason: "rotated",
+    lastUsedAt: now,
+    replacedBySessionId: newSessionId,
+  };
+
+  const rotation = await User.updateOne(
+    {
+      _id: user._id,
+      __v: user.__v,
+      status: "active",
+      emailVerifiedAt: { $ne: null },
+      $or: [{ lockedUntil: null }, { lockedUntil: { $lte: now } }],
+      refreshSessions: {
+        $elemMatch: {
+          sessionId: claims.sid,
+          familyId: claims.familyId,
+          tokenHash: hashRefreshToken(refreshToken),
+          revokedAt: null,
+          expiresAt: { $gt: now },
+        },
+      },
+    },
+    {
+      $set: { refreshSessions: [...retainedSessions, newSession] },
+      $inc: { __v: 1 },
+    },
+  );
+
+  if (rotation.modifiedCount !== 1) {
+    throw invalidSessionError();
+  }
+
+  return {
+    accessToken: signAccessToken(user),
+    expiresIn: env.jwtAccessExpiresIn,
+    newRefreshToken,
+  };
 }
 
 function isTemporarilyLocked(user, now) {
@@ -599,6 +752,7 @@ async function resendVerificationOtp({ email }) {
 
 export const authService = Object.freeze({
   login,
+  refreshSession,
   registerCustomer,
   verifyEmail,
   resendVerificationOtp,

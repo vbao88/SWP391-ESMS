@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import { env } from "../config/env.js";
 import {
   login,
+  refreshSession,
   registerCustomer,
   resendVerificationOtp,
   verifyEmail,
@@ -11,6 +12,7 @@ import { validate } from "../middlewares/validate.middleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import {
   loginSchema,
+  refreshSchema,
   registerSchema,
   resendVerificationOtpSchema,
   verifyEmailSchema,
@@ -27,6 +29,19 @@ const loginLimiter = rateLimit({
   handler: (_request, response) => response.status(429).json({
     success: false,
     message: "Too many login attempts. Please try again later.",
+    details: null,
+  }),
+});
+
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1_000,
+  limit: 60,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  skip: () => env.nodeEnv === "test",
+  handler: (_request, response) => response.status(429).json({
+    success: false,
+    message: "Too many refresh attempts. Please try again later.",
     details: null,
   }),
 });
@@ -106,6 +121,53 @@ const loginLimiter = rateLimit({
  *         description: Login session could not be persisted after concurrent changes
  */
 authRouter.post("/login", loginLimiter, validate(loginSchema), asyncHandler(login));
+
+/**
+ * @openapi
+ * /auth/refresh:
+ *   post:
+ *     summary: Rotate a Refresh Token and issue a new Access Token
+ *     description: Reads the single-use Refresh Token only from the HttpOnly cookie. Every success rotates the cookie and invalidates the old token. The Refresh Token never appears in JSON.
+ *     tags:
+ *       - Authentication
+ *     security:
+ *       - refreshCookie: []
+ *     responses:
+ *       200:
+ *         description: Token refreshed successfully and rotated Refresh Cookie set
+ *         headers:
+ *           Set-Cookie:
+ *             description: Rotated HttpOnly, SameSite=Lax Refresh Token cookie
+ *             schema: { type: string }
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 message: { type: string, example: Token refreshed successfully. }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     accessToken:
+ *                       type: string
+ *                       description: Use as a Bearer token for protected endpoints
+ *                     expiresIn: { type: string, example: 15m }
+ *       401:
+ *         description: Invalid or expired session; clears the Refresh Cookie
+ *       429:
+ *         description: Too many refresh attempts from this IP
+ *       500:
+ *         description: Internal server error
+ *       503:
+ *         description: Refresh rotation could not be completed
+ */
+authRouter.post(
+  "/refresh",
+  refreshLimiter,
+  validate(refreshSchema),
+  asyncHandler(refreshSession),
+);
 
 /**
  * @openapi

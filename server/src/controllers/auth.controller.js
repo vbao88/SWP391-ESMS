@@ -1,7 +1,10 @@
 import { authService } from "../services/auth.service.js";
 import { env } from "../config/env.js";
 import { sendSuccess } from "../utils/response.js";
-import { getRefreshCookieOptions } from "../utils/token.js";
+import {
+  getClearRefreshCookieOptions,
+  getRefreshCookieOptions,
+} from "../utils/token.js";
 
 export async function login(request, response) {
   const { refreshToken, data } = await authService.login({
@@ -16,6 +19,29 @@ export async function login(request, response) {
     message: "Login successful.",
     data,
   });
+}
+
+export async function refreshSession(request, response) {
+  try {
+    const { accessToken, expiresIn, newRefreshToken } = await authService.refreshSession({
+      refreshToken: request.cookies?.[env.refreshCookieName],
+      userAgent: request.get("user-agent") ?? null,
+      ipAddress: request.ip ?? null,
+    });
+
+    response.cookie(env.refreshCookieName, newRefreshToken, getRefreshCookieOptions());
+
+    return sendSuccess(response, {
+      message: "Token refreshed successfully.",
+      data: { accessToken, expiresIn },
+    });
+  } catch (error) {
+    if (error instanceof Error && error.statusCode === 401) {
+      response.clearCookie(env.refreshCookieName, getClearRefreshCookieOptions());
+    }
+
+    throw error;
+  }
 }
 
 export async function registerCustomer(request, response) {
