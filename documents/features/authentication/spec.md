@@ -205,3 +205,40 @@ The phase is complete only when:
 - OTP is not stored in plain text
 - Password is not returned by any API
 - Swagger documentation is updated
+
+---
+
+## Phase 2 — Login and Session Management
+
+### Scope and API Contracts
+
+The approved future endpoints are:
+
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
+
+Login accepts an email address and password. A successful login will return a short-lived Access
+Token and safe user data, and will set a Refresh Token only in an HTTP-only cookie. Refresh will
+rotate the presented Refresh Token and issue a new Access Token. Logout will revoke the presented
+refresh session and clear the cookie.
+
+These endpoints are documented for the future Phase 2 implementation. Login, refresh, and logout
+are not implemented in Checkpoint 3A.
+
+### Approved Authentication and Session Rules
+
+- Only users whose status is `active` and whose email is verified may log in.
+- Every unsuccessful login case returns the generic message `Invalid email or password.`
+- Five consecutive failed password attempts create a temporary account lock.
+- The temporary lock lasts 15 minutes by default.
+- Temporary locks use `lockedUntil` and do not change `status` to `locked`.
+- `status=locked` is reserved for an administrative lock.
+- Access Tokens normally expire after 15 minutes.
+- Refresh Tokens normally expire after 7 days.
+- A Refresh Token is stored only in an HTTP-only cookie.
+- A raw Refresh Token is never stored in MongoDB; only its hash and session metadata are stored.
+- Refresh Tokens are single-use and are rotated after a successful refresh.
+- Logout revokes the refresh session represented by the presented Refresh Token.
+- A user may have at most 10 active refresh sessions.
+- Existing Access Tokens remain usable until their expiry after logout.

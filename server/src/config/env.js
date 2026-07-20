@@ -4,6 +4,20 @@ dotenv.config();
 
 const nodeEnv = process.env.NODE_ENV ?? "development";
 
+function readRequiredSecret(name) {
+  const value = process.env[name]?.trim();
+
+  if (value) {
+    return value;
+  }
+
+  if (nodeEnv === "test") {
+    return `test-only-${name.toLowerCase().replaceAll("_", "-")}`;
+  }
+
+  throw new Error(`${name} is required outside the test environment`);
+}
+
 function readPositiveInteger(name, fallback) {
   const rawValue = process.env[name] ?? fallback;
   const value = Number(rawValue);
@@ -15,12 +29,38 @@ function readPositiveInteger(name, fallback) {
   return value;
 }
 
-const requiredInProduction = [
-  "MONGODB_URI",
-  "JWT_ACCESS_SECRET",
-  "JWT_REFRESH_SECRET",
-  "CLIENT_URL",
-];
+function readNonEmptyString(name, fallback) {
+  const value = (process.env[name] ?? fallback)?.trim();
+
+  if (!value) {
+    throw new Error(`${name} must be a non-empty string`);
+  }
+
+  return value;
+}
+
+function readDurationString(name, fallback) {
+  const value = readNonEmptyString(name, fallback);
+  const match = value.match(/^(\d+)([smhd])$/);
+
+  if (!match || Number(match[1]) <= 0) {
+    throw new Error(`${name} must be a positive duration using s, m, h, or d`);
+  }
+
+  return value;
+}
+
+function readSafeCookieName() {
+  const value = readNonEmptyString("REFRESH_COOKIE_NAME", "esms_refresh_token");
+
+  if (!/^[!#$%&'*+.^_`|~\dA-Za-z-]+$/.test(value)) {
+    throw new Error("REFRESH_COOKIE_NAME must be a safe cookie name");
+  }
+
+  return value;
+}
+
+const requiredInProduction = ["MONGODB_URI", "CLIENT_URL"];
 
 if (nodeEnv === "production") {
   const missing = requiredInProduction.filter((key) => !process.env[key]);
@@ -47,8 +87,13 @@ export const env = Object.freeze({
     (nodeEnv === "test"
       ? "mongodb://localhost:27017/eyewear_shop_management_test?replicaSet=rs0"
       : undefined),
-  jwtAccessSecret: process.env.JWT_ACCESS_SECRET ?? "development-access-secret",
-  jwtRefreshSecret: process.env.JWT_REFRESH_SECRET ?? "development-refresh-secret",
+  jwtAccessSecret: readRequiredSecret("JWT_ACCESS_SECRET"),
+  jwtRefreshSecret: readRequiredSecret("JWT_REFRESH_SECRET"),
+  jwtAccessExpiresIn: readDurationString("JWT_ACCESS_EXPIRES_IN", "15m"),
+  jwtRefreshExpiresIn: readDurationString("JWT_REFRESH_EXPIRES_IN", "7d"),
+  accountLockMinutes: readPositiveInteger("ACCOUNT_LOCK_MINUTES", 15),
+  maxActiveRefreshSessions: readPositiveInteger("MAX_ACTIVE_REFRESH_SESSIONS", 10),
+  refreshCookieName: readSafeCookieName(),
   emailMode: process.env.EMAIL_MODE ?? "console",
   otpHashSecret: otpHashSecret ?? "test-only-otp-hash-secret",
   otpExpiresMinutes: readPositiveInteger("OTP_EXPIRES_MINUTES", 5),
