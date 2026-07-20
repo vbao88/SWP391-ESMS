@@ -10,3 +10,12 @@ export async function registerCustomer(request, response) {
     data,
   });
 }
+
+export async function verifyEmail(request, response) {
+  const data = await authService.verifyEmail(request.body);
+
+  return sendSuccess(response, {
+    message: "Email verified successfully.",
+    data,
+  });
+}

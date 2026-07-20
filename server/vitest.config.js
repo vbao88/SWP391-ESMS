@@ -5,5 +5,6 @@ process.env.NODE_ENV = "test";
 export default defineConfig({
   test: {
     environment: "node",
+    fileParallelism: false,
   },
 });

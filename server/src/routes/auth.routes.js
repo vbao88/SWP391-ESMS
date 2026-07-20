@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { registerCustomer } from "../controllers/auth.controller.js";
+import { registerCustomer, verifyEmail } from "../controllers/auth.controller.js";
 import { validate } from "../middlewares/validate.middleware.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { registerSchema } from "../validations/auth.validation.js";
+import { registerSchema, verifyEmailSchema } from "../validations/auth.validation.js";
 
 export const authRouter = Router();
 
@@ -70,3 +70,61 @@ export const authRouter = Router();
  *         description: Account created but verification OTP delivery failed
  */
 authRouter.post("/register", validate(registerSchema), asyncHandler(registerCustomer));
+
+/**
+ * @openapi
+ * /auth/verify-email:
+ *   post:
+ *     summary: Verify a customer email using the newest OTP
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, otp]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: bao@example.com
+ *               otp:
+ *                 type: string
+ *                 pattern: '^\\d{6}$'
+ *                 example: '123456'
+ *     responses:
+ *       200:
+ *         description: Email verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Email verified successfully.
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     email:
+ *                       type: string
+ *                       format: email
+ *                       example: bao@example.com
+ *                     status:
+ *                       type: string
+ *                       enum: [active]
+ *       400:
+ *         description: OTP is incorrect or expired
+ *       404:
+ *         description: Account does not exist
+ *       409:
+ *         description: Account is already verified or is not eligible for verification
+ *       429:
+ *         description: Too many requests
+ */
+authRouter.post("/verify-email", validate(verifyEmailSchema), asyncHandler(verifyEmail));
