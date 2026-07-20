@@ -205,3 +205,78 @@ The phase is complete only when:
 - OTP is not stored in plain text
 - Password is not returned by any API
 - Swagger documentation is updated
+
+---
+
+## Phase 2 — Login and Session Management
+
+### Scope and API Contracts
+
+The approved future endpoints are:
+
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
+
+Login accepts an email address and password. A successful login will return a short-lived Access
+Token and safe user data, and will set a Refresh Token only in an HTTP-only cookie. Refresh will
+rotate the presented Refresh Token and issue a new Access Token. Logout will revoke the presented
+refresh session and clear the cookie.
+
+The email/password login endpoint is implemented in Checkpoint 3B. Refresh Token rotation is
+implemented in Checkpoint 3C. Current-session logout is implemented in Checkpoint 3D.
+
+#### Login
+
+`POST /api/v1/auth/login`
+
+Request:
+
+```json
+{
+  "email": "bao@example.com",
+  "password": "Password123"
+}
+```
+
+A successful login returns HTTP 200 with an Access Token, its configured expiry, and safe user
+data. The initial Refresh Token is returned only in the `esms_refresh_token` HTTP-only cookie.
+Every authentication failure returns HTTP 401 with `Invalid email or password.` Malformed input
+remains HTTP 400, and login-specific throttling may return HTTP 429.
+
+#### Refresh Session
+
+`POST /api/v1/auth/refresh`
+
+Refresh reads the single-use Refresh Token only from the configured HTTP-only cookie. A successful
+request atomically revokes the presented session, creates a successor in the same token family,
+sets the rotated cookie, and returns only a new Access Token and its configured expiry. The old
+Refresh Token becomes invalid immediately. Every invalid or expired refresh session returns HTTP
+401 with `Invalid or expired session.` and clears the cookie. Refresh Tokens and session metadata
+are never returned in JSON.
+
+#### Logout
+
+`POST /api/v1/auth/logout`
+
+Logout reads only the configured Refresh Token cookie, revokes only its matching current session,
+and always clears the cookie. The operation is idempotent: missing, invalid, expired, unknown, or
+already-revoked sessions still return HTTP 200 with `Logout successful.` Existing Access Tokens
+are not revoked and remain usable until their configured expiry.
+
+### Approved Authentication and Session Rules
+
+- Only users whose status is `active` and whose email is verified may log in.
+- Every unsuccessful login case returns the generic message `Invalid email or password.`
+- Five consecutive failed password attempts create a temporary account lock.
+- The temporary lock lasts 15 minutes by default.
+- Temporary locks use `lockedUntil` and do not change `status` to `locked`.
+- `status=locked` is reserved for an administrative lock.
+- Access Tokens normally expire after 15 minutes.
+- Refresh Tokens normally expire after 7 days.
+- A Refresh Token is stored only in an HTTP-only cookie.
+- A raw Refresh Token is never stored in MongoDB; only its hash and session metadata are stored.
+- Refresh Tokens are single-use and are rotated after a successful refresh.
+- Logout revokes the refresh session represented by the presented Refresh Token.
+- A user may have at most 10 active refresh sessions.
+- Existing Access Tokens remain usable until their expiry after logout.
