@@ -247,4 +247,45 @@ describe("POST /api/v1/auth/register", () => {
     expect(response.headers["set-cookie"]).toBeUndefined();
     expect(JSON.stringify(response.body).toLowerCase()).not.toContain("refresh");
   });
+
+  it("applies the global rate limit per client IP", async () => {
+    const exhaustedIp = "203.0.113.173";
+    const independentIp = "203.0.113.174";
+    const invalidRegistration = {};
+    const sendInvalidRegistration = (ipAddress) =>
+      request(app)
+        .post("/api/v1/auth/register")
+        .set("X-Forwarded-For", ipAddress)
+        .send(invalidRegistration);
+
+    const firstResponse = await sendInvalidRegistration(exhaustedIp);
+
+    expect(firstResponse.status).toBe(400);
+    expect(firstResponse.status).not.toBe(429);
+
+    const remainingAllowedResponses = await Promise.all(
+      Array.from({ length: 299 }, () => sendInvalidRegistration(exhaustedIp)),
+    );
+
+    expect(remainingAllowedResponses.every(({ status }) => status !== 429)).toBe(true);
+
+    const limitedResponse = await sendInvalidRegistration(exhaustedIp);
+    const retryAfterHeader = Object.keys(limitedResponse.headers).find(
+      (headerName) => headerName.toLowerCase() === "retry-after",
+    );
+    const rateLimitHeader = Object.keys(limitedResponse.headers).find(
+      (headerName) => headerName.toLowerCase() === "ratelimit",
+    );
+
+    expect(limitedResponse.status).toBe(429);
+    expect(retryAfterHeader).toBeDefined();
+    expect(Number(limitedResponse.headers[retryAfterHeader])).toBeGreaterThan(0);
+    expect(rateLimitHeader).toBeDefined();
+    expect(limitedResponse.headers[rateLimitHeader]).toBeTruthy();
+
+    const independentResponse = await sendInvalidRegistration(independentIp);
+
+    expect(independentResponse.status).toBe(400);
+    expect(independentResponse.status).not.toBe(429);
+  }, 15_000);
 });
