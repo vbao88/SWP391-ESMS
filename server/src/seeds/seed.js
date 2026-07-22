@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { connectDatabase, disconnectDatabase } from "../config/database.js";
 import { Branch } from "../models/Branch.js";
 import { User } from "../models/User.js";
+import { seedProductReferences } from "./product-reference.seed.js";
 
 const branches = [
   {
@@ -34,6 +35,8 @@ async function seed() {
       { upsert: true, new: true, setDefaultsOnInsert: true },
     );
   }
+
+  await seedProductReferences();
 
   const email = process.env.SEED_ADMIN_EMAIL;
   const password = process.env.SEED_ADMIN_PASSWORD;
