@@ -1,9 +1,9 @@
 import { ApiError } from "../utils/ApiError.js";
 
-export const validate = (schema, property = "body") => (request, _response, next) => {
+export const validate = (schema, property = "body", options = {}) => (request, _response, next) => {
   const { value, error } = schema.validate(request[property], {
     abortEarly: false,
-    stripUnknown: true,
+    stripUnknown: options.stripUnknown ?? true,
   });
 
   if (error) {
@@ -16,6 +16,10 @@ export const validate = (schema, property = "body") => (request, _response, next
     );
   }
 
-  request[property] = value;
+  if (property === "query") {
+    request.validatedQuery = value;
+  } else {
+    request[property] = value;
+  }
   return next();
 };
