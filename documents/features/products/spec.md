@@ -293,6 +293,16 @@ Frame card/detail uses Frame images. A displayed variant uses its own primary/fi
 back to the Frame primary/first image, and finally returns `null`. Public DTOs never expose
 `publicId`.
 
+Public Frame Detail returns both Frame and FrameVariant image arrays ordered by `sortOrder`
+ascending, then by original stored-array index ascending. The stored-array-index tie-breaker is a
+deterministic presentation rule and does not add an identifier to Media or rewrite storage.
+
+For both Frame and FrameVariant media, primary-image presentation first considers images where
+`isPrimary=true`; multiple primary images are resolved by `sortOrder` ascending, then original
+stored-array index ascending. If no primary exists, it selects the first image using that same
+ordering. An empty image array selects `null`. A variant `primaryImage` uses its selected image,
+then the selected Frame image, then `null`; the Frame fallback is not copied into `variant.images`.
+
 ## 13. Public Frame List API
 
 `GET /api/v1/frames`
@@ -405,6 +415,10 @@ No authentication is required. `frameId` must be exactly 24 hexadecimal characte
 
 The business query MUST enforce effective visibility and MUST NOT rely on the controller/client
 to hide ineligible resources.
+
+Returned active FrameVariants are ordered by canonical stored `color` ascending, then canonical
+stored `size` ascending, canonical stored `sku` ascending, and `_id` ascending. Frame and variant
+image ordering and primary-image fallback follow Section 12.
 
 ## 15. Public Lens List API
 

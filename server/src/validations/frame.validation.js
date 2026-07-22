@@ -101,3 +101,7 @@ export const listPublicFramesQuerySchema = Joi.object({
     return value;
   })
   .unknown(false);
+
+export const publicFrameDetailParamsSchema = Joi.object({
+  frameId: objectId.required(),
+}).unknown(false);

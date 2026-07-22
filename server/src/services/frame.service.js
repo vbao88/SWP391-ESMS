@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { Frame } from "../models/Frame.js";
+import { ApiError } from "../utils/ApiError.js";
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -90,4 +91,136 @@ async function listPublicFrames(query) {
   return { items: result.items, pagination: { page: query.page, pageSize: query.pageSize, totalItems, totalPages: totalItems === 0 ? 0 : Math.ceil(totalItems / query.pageSize) } };
 }
 
-export const frameService = Object.freeze({ listPublicFrames });
+function orderedMedia(images) {
+  return images
+    .map((image, storedIndex) => ({ image, storedIndex }))
+    .sort((left, right) => left.image.sortOrder - right.image.sortOrder || left.storedIndex - right.storedIndex)
+    .map(({ image }) => ({
+      url: image.url,
+      altText: image.altText,
+      sortOrder: image.sortOrder,
+      isPrimary: image.isPrimary,
+    }));
+}
+
+function selectedPrimaryImage(images) {
+  const selected = images.find(({ isPrimary }) => isPrimary) ?? images[0];
+  return selected ? { url: selected.url, altText: selected.altText } : null;
+}
+
+function publicMediaProjection(input) {
+  return {
+    $map: {
+      input,
+      as: "image",
+      in: {
+        url: "$$image.url",
+        altText: "$$image.altText",
+        sortOrder: "$$image.sortOrder",
+        isPrimary: "$$image.isPrimary",
+      },
+    },
+  };
+}
+
+async function getPublicFrameDetail(frameId) {
+  const [frame] = await Frame.aggregate([
+    { $match: { _id: new mongoose.Types.ObjectId(frameId), status: "active" } },
+    {
+      $lookup: {
+        from: "brands",
+        let: { id: "$brandId" },
+        pipeline: [
+          { $match: { $expr: { $and: [{ $eq: ["$_id", "$$id"] }, { $eq: ["$status", "active"] }] } } },
+          { $project: { name: 1 } },
+        ],
+        as: "brand",
+      },
+    },
+    { $unwind: "$brand" },
+    {
+      $lookup: {
+        from: "categories",
+        let: { id: "$categoryId" },
+        pipeline: [
+          { $match: { $expr: { $and: [{ $eq: ["$_id", "$$id"] }, { $eq: ["$status", "active"] }] } } },
+          { $project: { name: 1 } },
+        ],
+        as: "category",
+      },
+    },
+    { $unwind: "$category" },
+    {
+      $lookup: {
+        from: "framevariants",
+        let: { id: "$_id" },
+        pipeline: [
+          { $match: { $expr: { $and: [{ $eq: ["$frameId", "$$id"] }, { $eq: ["$status", "active"] }] } } },
+          { $sort: { color: 1, size: 1, sku: 1, _id: 1 } },
+          {
+            $project: {
+              _id: 1,
+              sku: 1,
+              color: 1,
+              size: 1,
+              price: 1,
+              images: publicMediaProjection("$images"),
+            },
+          },
+        ],
+        as: "variants",
+      },
+    },
+    { $match: { "variants.0": { $exists: true } } },
+    {
+      $project: {
+        _id: 1,
+        name: 1,
+        description: 1,
+        brand: { _id: "$brand._id", name: "$brand.name" },
+        category: { _id: "$category._id", name: "$category.name" },
+        shape: 1,
+        material: 1,
+        gender: 1,
+        faceShapes: 1,
+        images: publicMediaProjection("$images"),
+        variants: 1,
+      },
+    },
+  ]);
+
+  if (!frame) throw new ApiError(404, "Frame not found");
+
+  const images = orderedMedia(frame.images);
+  const framePrimaryImage = selectedPrimaryImage(images);
+  const variants = frame.variants.map((variant) => {
+    const variantImages = orderedMedia(variant.images);
+    return {
+      id: variant._id.toString(),
+      sku: variant.sku,
+      color: variant.color,
+      size: variant.size,
+      price: variant.price,
+      images: variantImages,
+      primaryImage: selectedPrimaryImage(variantImages) ?? framePrimaryImage,
+    };
+  });
+
+  return {
+    id: frame._id.toString(),
+    name: frame.name,
+    brand: { id: frame.brand._id.toString(), name: frame.brand.name },
+    category: { id: frame.category._id.toString(), name: frame.category.name },
+    shape: frame.shape,
+    material: frame.material,
+    gender: frame.gender,
+    faceShapes: frame.faceShapes,
+    primaryImage: framePrimaryImage,
+    priceFrom: Math.min(...variants.map(({ price }) => price)),
+    description: frame.description,
+    images,
+    variants,
+  };
+}
+
+export const frameService = Object.freeze({ listPublicFrames, getPublicFrameDetail });

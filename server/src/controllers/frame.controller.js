@@ -8,3 +8,11 @@ export async function listPublicFrames(request, response) {
     data,
   });
 }
+
+export async function getPublicFrameDetail(request, response) {
+  const data = await frameService.getPublicFrameDetail(request.params.frameId);
+  return sendSuccess(response, {
+    message: "Frame retrieved successfully.",
+    data,
+  });
+}
