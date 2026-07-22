@@ -59,8 +59,8 @@ Sales Staff, Prescription Staff, Customers, and ineligible Administrators are de
 existing authentication and authorization error contracts are reused.
 
 This specification approves the administration capability and same-resource namespace
-convention. Exact mutation paths are introduced only by their later implementation checkpoints;
-this document does not invent unapproved Admin Read endpoints.
+convention. Exact mutation paths and contracts are defined in Section 16. Dedicated Admin Product
+Read endpoints are deferred and public reads are not substitutes for Admin reads.
 
 ## 4. Domain Boundaries
 
@@ -455,17 +455,205 @@ Success is HTTP 200 with exact message `Lenses retrieved successfully.` and the 
 
 ## 16. Admin Product Management Scope
 
-Later checkpoints provide Super Administrator management of:
+Admin Product MVP provides current active Super Administrator mutation capability for:
 
 - Brand and Category information/status.
 - Frame and FrameVariant information/status/prices.
 - Lens and LensOption information/status/prices.
 - Product media metadata.
 
-Protected mutations use the same resource namespaces as public APIs and the middleware order in
-Section 3. Exact endpoint paths and request contracts are defined by their approved implementation
-checkpoints. No hard delete, cascade status mutation, Branch Manager permission, dependency
-protection rule, or unapproved Admin Read route is implied.
+### 16.1 Common mutation contract
+
+All Product mutations use the same-resource namespace. `/api/v1/admin` routes, nested-create
+routes, `PUT`, and `DELETE` are not used. `POST` creates a resource, `PATCH` partially updates its
+information, and `PATCH /:resourceId/status` performs the lifecycle mutation.
+
+Every protected mutation uses this exact middleware order:
+
+```text
+authenticate -> requireSuperAdmin -> validate params -> validate body -> controller -> service
+```
+
+Only the current active Super Administrator may mutate Product master data. The current User in
+the database is the final authority. Authentication and authorization use the exact errors in
+Section 19 and occur before Product validation or lookup.
+
+Create bodies do not accept `status` and use the existing model default `active`. General updates
+are partial, require at least one allowed information field, and reject `status`. Status endpoints
+accept only:
+
+```json
+{
+  "status": "active"
+}
+```
+
+The other permitted value is `inactive`. Setting the current status again is idempotent and
+returns HTTP 200. `_id`, `__v`, normalized fields, timestamps, and any field outside the exact
+body allowlist are never client-controlled. Product master data is never hard-deleted.
+
+Create succeeds with HTTP 201. Information and status updates succeed with HTTP 200. Every
+success uses:
+
+```json
+{
+  "success": true,
+  "message": "Exact resource message",
+  "data": {}
+}
+```
+
+`data` is the exact Admin DTO from Section 18.2.
+
+### 16.2 Brand mutations
+
+```text
+POST  /api/v1/brands
+PATCH /api/v1/brands/:brandId
+PATCH /api/v1/brands/:brandId/status
+```
+
+- Create body: `name`.
+- Information update body: `name` only.
+- Create message: `Brand created successfully.`
+- Update message: `Brand updated successfully.`
+- Status message: `Brand status updated successfully.`
+- Unknown Brand: HTTP 404 `Brand not found`.
+- Duplicate normalized name: HTTP 409 `Brand name already exists`.
+
+### 16.3 Category mutations
+
+```text
+POST  /api/v1/categories
+PATCH /api/v1/categories/:categoryId
+PATCH /api/v1/categories/:categoryId/status
+```
+
+- Create body: `name`.
+- Information update body: `name` only.
+- Create message: `Category created successfully.`
+- Update message: `Category updated successfully.`
+- Status message: `Category status updated successfully.`
+- Unknown Category: HTTP 404 `Category not found`.
+- Duplicate normalized name: HTTP 409 `Category name already exists`.
+
+### 16.4 Frame mutations
+
+```text
+POST  /api/v1/frames
+PATCH /api/v1/frames/:frameId
+PATCH /api/v1/frames/:frameId/status
+```
+
+Create body fields are:
+
+```text
+name, description, brandId, categoryId, shape, material, gender, faceShapes, images
+```
+
+Required/default behavior remains exactly as defined in Section 8. Information update accepts
+the same fields as optional partial fields. Unknown Frame returns HTTP 404 `Frame not found`.
+Success messages are `Frame created successfully.`, `Frame updated successfully.`, and
+`Frame status updated successfully.`
+
+### 16.5 FrameVariant mutations
+
+FrameVariant uses a top-level namespace:
+
+```text
+POST  /api/v1/frame-variants
+PATCH /api/v1/frame-variants/:frameVariantId
+PATCH /api/v1/frame-variants/:frameVariantId/status
+```
+
+- Create body: `frameId, sku, color, size, price, images`.
+- Information update body: `color, size, price, images`.
+- `frameId` and `sku` are immutable after creation.
+- Create message: `Frame variant created successfully.`
+- Update message: `Frame variant updated successfully.`
+- Status message: `Frame variant status updated successfully.`
+- Unknown FrameVariant: HTTP 404 `Frame variant not found`.
+- Duplicate SKU: HTTP 409 `Frame variant SKU already exists`.
+- Duplicate normalized color/size for the Frame: HTTP 409
+  `Frame variant color and size already exist for this frame`.
+
+FrameVariant mutations do not query or mutate Inventory.
+
+### 16.6 Lens mutations
+
+```text
+POST  /api/v1/lenses
+PATCH /api/v1/lenses/:lensId
+PATCH /api/v1/lenses/:lensId/status
+```
+
+Create body fields are:
+
+```text
+name, description, brandId, visionType, refractiveIndex, features, basePrice, images
+```
+
+Required/default behavior remains exactly as defined in Section 10. Information update accepts
+the same fields as optional partial fields. Unknown Lens returns HTTP 404 `Lens not found`.
+Success messages are `Lens created successfully.`, `Lens updated successfully.`, and
+`Lens status updated successfully.` No mutation accepts `price`, `supportedRange`, compatibility,
+or configured-price fields.
+
+### 16.7 LensOption mutations
+
+LensOption uses a top-level namespace:
+
+```text
+POST  /api/v1/lens-options
+PATCH /api/v1/lens-options/:lensOptionId
+PATCH /api/v1/lens-options/:lensOptionId/status
+```
+
+- Create body: `lensId, type, value, priceAdjustment`.
+- Information update body: `value, priceAdjustment`.
+- `lensId` and `type` are immutable after creation.
+- `priceAdjustment` is a signed integer VND value.
+- Create message: `Lens option created successfully.`
+- Update message: `Lens option updated successfully.`
+- Status message: `Lens option status updated successfully.`
+- Unknown LensOption: HTTP 404 `Lens option not found`.
+- Duplicate `{ lensId, type, valueNormalized }`: HTTP 409
+  `Lens option type and value already exist for this lens`.
+
+LensOption has no SKU, stock, Inventory, public access, supported range, or compatibility field.
+
+### 16.8 Dependency policy and lifecycle effects
+
+Referenced Brand, Category, Frame, and Lens dependencies must exist but do not need to be active.
+This existing-only policy applies to Frame -> Brand/Category, FrameVariant -> Frame, Lens -> Brand,
+and LensOption -> Lens. Assigning an inactive parent is allowed for Admin catalog preparation.
+Missing referenced resources use their corresponding Section 19 not-found contract.
+
+A lifecycle mutation changes only the target document. Deactivation does not mutate dependent
+Product documents. Public visibility remains derived from Section 5, so an inactive dependency
+may conceal a public resource without changing the stored child status.
+
+### 16.9 Media metadata mutations
+
+Ordinary Frame, FrameVariant, and Lens create/update requests may provide the complete embedded
+`images` metadata array. An update replaces the entire stored array only when `images` is present;
+otherwise it preserves the existing array. Admin Media accepts exactly:
+
+```text
+url, publicId?, altText, sortOrder, isPrimary
+```
+
+`publicId` is optional and is retained and returned when stored. Each array permits at most one
+`isPrimary=true`. Media subdocument internals are never returned. These mutations only replace
+database metadata: they do not call Cloudinary, verify remote assets, or upload, delete, and
+reorder Cloudinary resources.
+
+### 16.10 Transaction and Admin Read boundaries
+
+Each Admin Product MVP mutation writes one Product document and does not cascade. MongoDB
+transactions and Audit Log writes are not required. Dedicated Admin Product list/detail endpoints
+are deferred to a separate checkpoint. Public reads do not replace Admin reads and must retain
+their existing public visibility and DTO contracts.
 
 ## 17. Query Contract Summary
 
@@ -600,6 +788,12 @@ Joi validation errors use an array in `details`. No symbolic error-code property
 | Duplicate Category name | 409 | `Category name already exists` |
 | Duplicate FrameVariant SKU | 409 | `Frame variant SKU already exists` |
 | Duplicate Frame color/size | 409 | `Frame variant color and size already exist for this frame` |
+| Duplicate LensOption type/value for Lens | 409 | `Lens option type and value already exist for this lens` |
+| Unknown Brand | 404 | `Brand not found` |
+| Unknown Category | 404 | `Category not found` |
+| Unknown FrameVariant | 404 | `Frame variant not found` |
+| Unknown Lens | 404 | `Lens not found` |
+| Unknown LensOption | 404 | `Lens option not found` |
 | Unexpected database/server error | 500 | `Internal server error` |
 
 ## 20. Seed Requirements
@@ -687,6 +881,8 @@ MUST NOT depend on seed execution, and MUST NOT depend on test order.
 
 ## 23. Deferred Capabilities
 
+- Dedicated Admin Product list/detail endpoints.
+- Admin Product UI/client integration.
 - Branch availability filter and Product availability.
 - Inventory quantities and reservations.
 - Lens `supportedRange` and supported-range filtering.
@@ -722,7 +918,7 @@ provide its initial references.
 
 - Hard delete or cascade status changes.
 - Branch Manager, Sales Staff, or Prescription Staff Product administration.
-- Admin Read routes not explicitly approved by later checkpoints.
+- Dedicated Admin Product list/detail endpoints, deferred to a separate contract checkpoint.
 - Inventory API, stock, reservation, transaction, or checkout behavior.
 - Cart/order persistence or price snapshots.
 - Prescription medical validation or range compatibility.
