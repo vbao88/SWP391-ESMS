@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authRouter } from "./auth.routes.js";
 import { branchRouter } from "./branch.routes.js";
+import { brandRouter } from "./brand.routes.js";
 import { healthRouter } from "./health.routes.js";
 import { frameRouter } from "./frame.routes.js";
 import { lensRouter } from "./lens.routes.js";
@@ -9,6 +10,7 @@ export const apiRouter = Router();
 
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/branches", branchRouter);
+apiRouter.use("/brands", brandRouter);
 apiRouter.use("/health", healthRouter);
 apiRouter.use("/frames", frameRouter);
 apiRouter.use("/lenses", lensRouter);

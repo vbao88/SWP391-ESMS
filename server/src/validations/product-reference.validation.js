@@ -1,6 +1,7 @@
 import Joi from "joi";
 
 const name = Joi.string().trim().required();
+const objectId = Joi.string().pattern(/^[a-f\d]{24}$/i).required();
 
 function createSchema() {
   return Joi.object({ name });
@@ -25,6 +26,7 @@ function updateStatusSchema() {
 export const createBrandSchema = createSchema();
 export const updateBrandSchema = updateSchema();
 export const updateBrandStatusSchema = updateStatusSchema();
+export const brandParamsSchema = Joi.object({ brandId: objectId });
 export const createCategorySchema = createSchema();
 export const updateCategorySchema = updateSchema();
 export const updateCategoryStatusSchema = updateStatusSchema();
